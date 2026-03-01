@@ -1,232 +1,292 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import AdminHeader from './components/AdminHeader';
+import AdminPanel from './components/AdminPanel';
+import ClientDashboard from './components/ClientDashboard';
+import ClientHeader from './components/ClientHeader';
+import AdminLoginModal from './components/modals/AdminLoginModal';
+import RequestModal from './components/modals/RequestModal';
+import { getTodayDate } from './lib/date';
+import {
+  createAdminSlot,
+  createClientRequest,
+  deleteAdminSlot,
+  getAdminNotifications,
+  getAdminRequests,
+  getAdminSession,
+  getAdminSlots,
+  getPublicSlots,
+  loginAdmin,
+  logoutAdmin as logoutAdminRequest,
+  updateAdminRequestStatus,
+} from './services/barberApi';
+import type { AdminUser, RequestDraft, TimeRequest, TimeSlot } from './types';
 
-type AppointmentStatus = 'booked' | 'requested' | 'approved' | 'declined';
-
-interface TimeSlot {
-  id: string;
-  date: string;
-  time: string;
-  bookedBy?: string;
-  customerEmail?: string;
-}
-
-interface TimeRequest {
-  id: string;
-  name: string;
-  email: string;
-  date: string;
-  time: string;
-  status: AppointmentStatus;
-}
-
-const initialSlots: TimeSlot[] = [
-  { id: 's1', date: '2026-03-02', time: '09:00' },
-  { id: 's2', date: '2026-03-02', time: '10:00' },
-  { id: 's3', date: '2026-03-03', time: '14:00' },
-];
-
-const createNotification = (name: string, date: string, time: string, type: 'booking' | 'request') =>
-  `📧 Simuleret e-mail til ejer: ${name} har lavet en ${type === 'booking' ? 'booking' : 'tidsanmodning'} den ${date} kl. ${time}.`;
+const todayDate = getTodayDate();
 
 const App = () => {
-  const [slots, setSlots] = useState<TimeSlot[]>(initialSlots);
+  const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [requests, setRequests] = useState<TimeRequest[]>([]);
   const [notificationLog, setNotificationLog] = useState<string[]>([]);
 
-  const [newSlotDate, setNewSlotDate] = useState('');
-  const [newSlotTime, setNewSlotTime] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [globalError, setGlobalError] = useState('');
+  const [requestSuccess, setRequestSuccess] = useState('');
 
-  const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState('');
+  const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
+  const [adminActionError, setAdminActionError] = useState('');
 
-  const [requestName, setRequestName] = useState('');
-  const [requestEmail, setRequestEmail] = useState('');
-  const [requestDate, setRequestDate] = useState('');
-  const [requestTime, setRequestTime] = useState('');
+  const [newSlotDate, setNewSlotDate] = useState(todayDate);
+  const [newSlotTime, setNewSlotTime] = useState('09:00');
 
-  const availableSlots = useMemo(() => slots.filter((slot) => !slot.bookedBy), [slots]);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(todayDate);
+  const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+  const [requestDraft, setRequestDraft] = useState<RequestDraft>({
+    name: '',
+    email: '',
+    phone: '',
+    notes: '',
+    date: todayDate,
+    time: '',
+  });
 
-  const addNotification = (message: string) => {
-    setNotificationLog((current) => [message, ...current]);
+  const loadPublicSlots = async () => {
+    const publicSlots = await getPublicSlots();
+    setSlots(publicSlots);
   };
 
-  const createSlot = () => {
+  const loadAdminData = async () => {
+    const [adminSlots, adminRequests, adminNotifications] = await Promise.all([
+      getAdminSlots(),
+      getAdminRequests(),
+      getAdminNotifications(),
+    ]);
+    setSlots(adminSlots);
+    setRequests(adminRequests);
+    setNotificationLog(adminNotifications);
+  };
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      setLoading(true);
+      setGlobalError('');
+
+      try {
+        await loadPublicSlots();
+      } catch {
+        setGlobalError('Kunne ikke hente ledige tider.');
+      }
+
+      try {
+        const user = await getAdminSession();
+        setAdminUser(user);
+        await loadAdminData();
+      } catch {
+        setAdminUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void bootstrap();
+  }, []);
+
+  const closeRequestModal = () => {
+    setIsRequestModalOpen(false);
+    setRequestDraft((current) => ({
+      ...current,
+      slotId: undefined,
+      time: current.slotId ? '' : current.time,
+    }));
+  };
+
+  const openRequestModal = (date: string, time: string, slotId?: string) => {
+    setRequestSuccess('');
+    setGlobalError('');
+    setRequestDraft((current) => ({
+      ...current,
+      date,
+      time,
+      slotId,
+    }));
+    setIsRequestModalOpen(true);
+  };
+
+  const submitRequest = async () => {
+    if (!requestDraft.name || !requestDraft.email || !requestDraft.date || !requestDraft.time) {
+      setGlobalError('Navn, e-mail, dato og tid er paakraevet.');
+      return;
+    }
+
+    try {
+      setGlobalError('');
+      const response = await createClientRequest(requestDraft);
+      if (response.emailStatus?.sent) {
+        setRequestSuccess('Din anmodning er sendt til admin, og e-mail er afsendt.');
+      } else if (response.emailStatus?.reason === 'email_send_failed') {
+        setRequestSuccess('Din anmodning er sendt til admin, men e-mail kunne ikke afsendes.');
+      } else {
+        setRequestSuccess('Din anmodning er sendt til admin. E-mail er ikke konfigureret endnu.');
+      }
+      closeRequestModal();
+      setRequestDraft((current) => ({
+        ...current,
+        notes: '',
+        time: '',
+        slotId: undefined,
+      }));
+      await loadPublicSlots();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunne ikke sende anmodning.';
+      setGlobalError(message);
+    }
+  };
+
+  const submitAdminLogin = async () => {
+    try {
+      setAdminLoginError('');
+      setGlobalError('');
+      const user = await loginAdmin(adminEmail, adminPassword);
+      setAdminUser(user);
+      setAdminEmail('');
+      setAdminPassword('');
+      setIsAdminLoginOpen(false);
+      await loadAdminData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login fejlede.';
+      setAdminLoginError(message);
+    }
+  };
+
+  const logoutAdmin = async () => {
+    try {
+      await logoutAdminRequest();
+    } catch {
+      // Ignore logout request errors and clear UI state anyway.
+    }
+
+    setAdminUser(null);
+    setRequests([]);
+    setNotificationLog([]);
+    setAdminActionError('');
+    setAdminLoginError('');
+    setGlobalError('');
+    setRequestSuccess('');
+
+    try {
+      await loadPublicSlots();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunne ikke hente offentlige tider.';
+      setGlobalError(message);
+    }
+  };
+
+  const handleCreateSlot = async () => {
     if (!newSlotDate || !newSlotTime) {
       return;
     }
 
-    setSlots((current) => [
-      ...current,
-      {
-        id: crypto.randomUUID(),
-        date: newSlotDate,
-        time: newSlotTime,
-      },
-    ]);
-
-    setNewSlotDate('');
-    setNewSlotTime('');
+    try {
+      setAdminActionError('');
+      await createAdminSlot(newSlotDate, newSlotTime);
+      await loadAdminData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunne ikke oprette tid.';
+      setAdminActionError(message);
+    }
   };
 
-  const bookSlot = (slotId: string) => {
-    if (!customerName || !customerEmail) {
-      return;
+  const handleUpdateRequestStatus = async (requestId: string, status: 'approved' | 'declined') => {
+    try {
+      setAdminActionError('');
+      await updateAdminRequestStatus(requestId, status);
+      await loadAdminData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunne ikke opdatere anmodning.';
+      setAdminActionError(message);
     }
+  };
 
-    setSlots((current) =>
-      current.map((slot) =>
-        slot.id === slotId
-          ? {
-              ...slot,
-              bookedBy: customerName,
-              customerEmail,
-            }
-          : slot,
-      ),
+  const handleDeleteSlot = async (slotId: string) => {
+    try {
+      setAdminActionError('');
+      await deleteAdminSlot(slotId);
+      await loadAdminData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Kunne ikke fjerne tid.';
+      setAdminActionError(message);
+    }
+  };
+
+  const wrapperClass = 'mx-auto min-h-screen w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8';
+
+  if (adminUser) {
+    return (
+      <main className={wrapperClass}>
+        <AdminHeader adminUser={adminUser} onLogout={logoutAdmin} />
+        {globalError ? (
+          <p className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{globalError}</p>
+        ) : null}
+        {loading ? <p className="mb-4 text-sm text-zinc-400">Indlaeser...</p> : null}
+        <AdminPanel
+          slots={slots}
+          requests={requests}
+          notifications={notificationLog}
+          newSlotDate={newSlotDate}
+          newSlotTime={newSlotTime}
+          adminActionError={adminActionError}
+          onNewSlotDateChange={setNewSlotDate}
+          onNewSlotTimeChange={setNewSlotTime}
+          onCreateSlot={() => void handleCreateSlot()}
+          onDeleteSlot={(slotId) => void handleDeleteSlot(slotId)}
+          onUpdateRequestStatus={(requestId, status) => void handleUpdateRequestStatus(requestId, status)}
+        />
+      </main>
     );
-
-    const selectedSlot = slots.find((slot) => slot.id === slotId);
-    if (selectedSlot) {
-      addNotification(createNotification(customerName, selectedSlot.date, selectedSlot.time, 'booking'));
-    }
-  };
-
-  const submitRequest = () => {
-    if (!requestName || !requestEmail || !requestDate || !requestTime) {
-      return;
-    }
-
-    const request: TimeRequest = {
-      id: crypto.randomUUID(),
-      name: requestName,
-      email: requestEmail,
-      date: requestDate,
-      time: requestTime,
-      status: 'requested',
-    };
-
-    setRequests((current) => [request, ...current]);
-    addNotification(createNotification(requestName, requestDate, requestTime, 'request'));
-
-    setRequestName('');
-    setRequestEmail('');
-    setRequestDate('');
-    setRequestTime('');
-  };
-
-  const updateRequestStatus = (requestId: string, status: 'approved' | 'declined') => {
-    setRequests((current) =>
-      current.map((request) => (request.id === requestId ? { ...request, status } : request)),
-    );
-  };
+  }
 
   return (
-    <main className="page">
-      <header>
-        <h1>Barber Booking System</h1>
-        <p>Administrér ledige tider, modtag forespørgsler og hold styr på kundebookinger.</p>
-      </header>
-
-      <section className="grid">
-        <article className="card">
-          <h2>1) Ledige tider (Admin)</h2>
-          <div className="row">
-            <input type="date" value={newSlotDate} onChange={(event) => setNewSlotDate(event.target.value)} />
-            <input type="time" value={newSlotTime} onChange={(event) => setNewSlotTime(event.target.value)} />
-            <button onClick={createSlot}>Opret tid</button>
-          </div>
-          <ul>
-            {slots.map((slot) => (
-              <li key={slot.id}>
-                <strong>
-                  {slot.date} kl. {slot.time}
-                </strong>{' '}
-                — {slot.bookedBy ? `Booket af ${slot.bookedBy}` : 'Ledig'}
-              </li>
-            ))}
-          </ul>
-        </article>
-
-        <article className="card">
-          <h2>2) Book ledig tid (Klient)</h2>
-          <div className="stack">
-            <input
-              type="text"
-              placeholder="Dit navn"
-              value={customerName}
-              onChange={(event) => setCustomerName(event.target.value)}
-            />
-            <input
-              type="email"
-              placeholder="Din e-mail"
-              value={customerEmail}
-              onChange={(event) => setCustomerEmail(event.target.value)}
-            />
-          </div>
-          <ul>
-            {availableSlots.map((slot) => (
-              <li key={slot.id} className="slot-row">
-                <span>
-                  {slot.date} kl. {slot.time}
-                </span>
-                <button onClick={() => bookSlot(slot.id)}>Book</button>
-              </li>
-            ))}
-            {availableSlots.length === 0 ? <li>Ingen ledige tider lige nu.</li> : null}
-          </ul>
-        </article>
-
-        <article className="card">
-          <h2>3) Tidsanmodning (Klient)</h2>
-          <div className="stack">
-            <input
-              type="text"
-              placeholder="Dit navn"
-              value={requestName}
-              onChange={(event) => setRequestName(event.target.value)}
-            />
-            <input
-              type="email"
-              placeholder="Din e-mail"
-              value={requestEmail}
-              onChange={(event) => setRequestEmail(event.target.value)}
-            />
-            <input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} />
-            <input type="time" value={requestTime} onChange={(event) => setRequestTime(event.target.value)} />
-            <button onClick={submitRequest}>Send anmodning</button>
-          </div>
-        </article>
-
-        <article className="card">
-          <h2>4) Håndtér anmodninger (Admin)</h2>
-          <ul>
-            {requests.map((request) => (
-              <li key={request.id} className="request-item">
-                <div>
-                  <strong>{request.name}</strong> ({request.email}) ønsker {request.date} kl. {request.time}
-                </div>
-                <div className="row">
-                  <span className={`status status-${request.status}`}>{request.status}</span>
-                  <button onClick={() => updateRequestStatus(request.id, 'approved')}>Acceptér</button>
-                  <button onClick={() => updateRequestStatus(request.id, 'declined')}>Afslå</button>
-                </div>
-              </li>
-            ))}
-            {requests.length === 0 ? <li>Ingen tidsanmodninger endnu.</li> : null}
-          </ul>
-        </article>
-
-        <article className="card full-width">
-          <h2>E-mail notifikationer (simuleret)</h2>
-          <p>Disse beskeder viser det indhold, som normalt sendes via backend e-mail service.</p>
-          <ul>
-            {notificationLog.map((message) => (
-              <li key={message}>{message}</li>
-            ))}
-            {notificationLog.length === 0 ? <li>Ingen notifikationer endnu.</li> : null}
-          </ul>
-        </article>
-      </section>
+    <main className={wrapperClass}>
+      <ClientHeader onAdminLoginClick={() => setIsAdminLoginOpen(true)} />
+      {globalError ? (
+        <p className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">{globalError}</p>
+      ) : null}
+      {requestSuccess ? (
+        <p className="mb-4 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+          {requestSuccess}
+        </p>
+      ) : null}
+      {loading ? <p className="mb-4 text-sm text-zinc-400">Indlaeser...</p> : null}
+      <ClientDashboard
+        slots={slots}
+        selectedDate={selectedDate}
+        calendarMonth={calendarMonth}
+        onPrevMonth={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+        onNextMonth={() => setCalendarMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+        onDateSelect={setSelectedDate}
+        onOpenRequest={openRequestModal}
+      />
+      <RequestModal
+        isOpen={isRequestModalOpen}
+        draft={requestDraft}
+        onClose={closeRequestModal}
+        onSubmit={() => void submitRequest()}
+        onDraftChange={setRequestDraft}
+      />
+      <AdminLoginModal
+        isOpen={isAdminLoginOpen}
+        email={adminEmail}
+        password={adminPassword}
+        error={adminLoginError}
+        onClose={() => setIsAdminLoginOpen(false)}
+        onSubmit={() => void submitAdminLogin()}
+        onEmailChange={setAdminEmail}
+        onPasswordChange={setAdminPassword}
+      />
     </main>
   );
 };
