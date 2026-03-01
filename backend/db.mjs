@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ServerApiVersion } from 'mongodb';
 
 const MONGODB_URI = String(process.env.MONGODB_URI || '').trim();
 const MONGODB_DB = String(process.env.MONGODB_DB || 'barber_booking').trim();
@@ -69,7 +69,18 @@ const ensureReady = async () => {
   }
 
   mongoCache.readyPromise = (async () => {
-    const client = new MongoClient(MONGODB_URI);
+    const client = new MongoClient(MONGODB_URI, {
+      serverApi: {
+        version: ServerApiVersion.v1,
+        strict: false,
+        deprecationErrors: true,
+      },
+      maxPoolSize: 10,
+      minPoolSize: 0,
+      serverSelectionTimeoutMS: 12000,
+      connectTimeoutMS: 12000,
+      socketTimeoutMS: 20000,
+    });
     await client.connect();
 
     const db = client.db(MONGODB_DB);

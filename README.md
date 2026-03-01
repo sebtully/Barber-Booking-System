@@ -94,6 +94,15 @@ Efter deploy:
 - Frontend kalder automatisk samme domain paa `/api/*`.
 - Admin login/session virker via cookie paa samme origin.
 
+## Fejlsoegning Vercel + MongoDB
+
+Hvis du faar TLS-fejl mod MongoDB (fx `tlsv1 alert internal error`):
+
+1. Bekraeft at `MONGODB_URI` i Vercel er sat korrekt uden ekstra mellemrum/anforselstegn.
+2. I MongoDB Atlas: Network Access skal tillade trafik fra Vercel (typisk `0.0.0.0/0` for public access).
+3. Bekraeft at DB user i Atlas er korrekt og har adgang til databasen.
+4. Brug en Node-version der matcher projektet (`>=20.19.0`) i Vercel.
+
 ## Vigtig note om data
 
 Data bliver nu gemt i MongoDB og overlever server-genstart og deploy.

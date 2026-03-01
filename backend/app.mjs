@@ -604,6 +604,9 @@ export const requestHandler = async (req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown server error.';
     console.error(`[API fejl] ${method} ${path}: ${message}`);
+    if (message.toLowerCase().includes('tlsv1 alert')) {
+      console.error('[API hint] MongoDB TLS fejl: tjek Atlas Network Access, DB user credentials og MONGODB_URI i Vercel env vars.');
+    }
     if (message === 'Payload too large') {
       sendJson(res, 413, { error: message });
       return;
