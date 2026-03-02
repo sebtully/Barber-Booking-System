@@ -40,7 +40,7 @@ Lav en `.env` fil ud fra `.env.example`:
 cp .env.example .env
 ```
 
-Noedvendige variabler:
+Nødvendige variabler:
 
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD_HASH` (bcrypt hash af admin password)
@@ -66,13 +66,7 @@ Backend bruger nu MongoDB til:
 Du skal derfor have en gyldig `MONGODB_URI`.
 Du kan bruge enten lokal MongoDB eller MongoDB Atlas.
 
-For at generere hash til `ADMIN_PASSWORD_HASH` kan du koere:
-
-```bash
-node -e "const bcrypt=require('bcryptjs'); console.log(bcrypt.hashSync('DIT_PASSWORD', 12));"
-```
-
-## Launch paa Vercel
+## Launch på Vercel
 
 Projektet er sat op til Vercel med:
 
@@ -86,28 +80,24 @@ Deploy:
 2. Import repo i Vercel.
 3. Build command: `npm run build` (sat i `vercel.json`).
 4. Output directory: `dist` (sat i `vercel.json`).
-5. Tilfoej alle env vars fra `.env.example` i Vercel Project Settings -> Environment Variables.
+5. Tilføj alle env vars fra `.env.example` i Vercel Project Settings -> Environment Variables.
 6. Deploy.
 
 Efter deploy:
 
-- Frontend kalder automatisk samme domain paa `/api/*`.
-- Admin login/session virker via cookie paa samme origin.
+- Frontend kalder automatisk samme domain på `/api/*`.
+- Admin login/session virker via cookie på samme origin.
 
 ## Fejlsoegning Vercel + MongoDB
 
-Hvis du faar TLS-fejl mod MongoDB (fx `tlsv1 alert internal error`):
+Hvis du får TLS-fejl mod MongoDB (fx `tlsv1 alert internal error`):
 
-1. Bekraeft at `MONGODB_URI` i Vercel er sat korrekt uden ekstra mellemrum/anforselstegn.
+1. Bekræft at `MONGODB_URI` i Vercel er sat korrekt uden ekstra mellemrum/anforselstegn.
 2. I MongoDB Atlas: Network Access skal tillade trafik fra Vercel (typisk `0.0.0.0/0` for public access).
-3. Bekraeft at DB user i Atlas er korrekt og har adgang til databasen.
+3. Bekræft at DB user i Atlas er korrekt og har adgang til databasen.
 4. Brug en Node-version der matcher projektet (`>=20.19.0`) i Vercel.
 
 ## Vigtig note om data
 
 Data bliver nu gemt i MongoDB og overlever server-genstart og deploy.
 Admin sessions ligger stadig i memory og kan nulstilles ved backend-restart.
-
-Backend har desuden:
-- HttpOnly + Secure (production) + SameSite=Strict admin-session cookie
-- Basic rate limit paa admin login
